@@ -32,14 +32,17 @@ jobs:
           authkey: ${{ secrets.TS_AUTHKEY }}
 
       - name: Setup Environment & Dependencies
+        env:
+          SSH_KEY_DATA: ${{ secrets.SSH_PRIVATE_KEY }}
+          RCLONE_CONF_DATA: ${{ secrets.GDRIVE_RCLONE_CONF }}
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq rclone openssh-client
           pip install --quiet av pillow
           mkdir -p ~/.ssh ~/.config/rclone
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_target
+          printf '%s\n' "$SSH_KEY_DATA" > ~/.ssh/id_target
           chmod 600 ~/.ssh/id_target
-          echo "${{ secrets.GDRIVE_RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+          printf '%s\n' "$RCLONE_CONF_DATA" > ~/.config/rclone/rclone.conf
           chmod 600 ~/.config/rclone/rclone.conf
 
       - name: Run DVR Recorder with Watchdog
