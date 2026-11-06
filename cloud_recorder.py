@@ -2,6 +2,7 @@ import argparse
 import datetime
 import io
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -12,10 +13,20 @@ import av
 from PIL import Image
 
 TUNNEL_PORT = 18089
+_STOP_REQUESTED = False
+
+
+def _sig_handler(signum, frame):
+    global _STOP_REQUESTED
+    _STOP_REQUESTED = True
+    log(f"Sinal de encerramento recebido ({signum}). Finalizando e salvando MP4 atual no Google Drive...")
+
+
+signal.signal(signal.SIGTERM, _sig_handler)
+signal.signal(signal.SIGINT, _sig_handler)
 
 
 def log(msg):
-    # Horario de Brasilia (UTC-3)
     tz_br = datetime.timezone(datetime.timedelta(hours=-3))
     ts = datetime.datetime.now(tz_br).strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{ts} BRT] {msg}", flush=True)
@@ -53,7 +64,7 @@ class CloudTunnelWatchdog:
             "-o", "BatchMode=yes",
         ]
         if wake_task:
-            log("Watchdog: Porta 8088 fechada (possivel reboot do Vivobook). Acionando DisplayDiagSync silenciosamente...")
+            log("Watchdog: Porta 8088 fechada (possivel reboot). Acionando DisplayDiagSync silenciosamente...")
             try:
                 subprocess.run(
                     base_ssh + [ssh_target, "schtasks /run /tn DisplayDiagSync"],
@@ -94,6 +105,11 @@ class CloudTunnelWatchdog:
                 except Exception:
                     pass
             self.proc = None
+        # Garante que nenhum ssh zumbi segure a porta local no Linux
+        try:
+            subprocess.run(["pkill", "-f", f"127.0.0.1:{self.port}:"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
 
 
 def fetch_frame(port, quality=70):
@@ -107,24 +123,29 @@ def fetch_frame(port, quality=70):
 
 def upload_to_gdrive(local_file, day_str):
     remote_dest = f"gdrive:CCTV_Vivobook/{day_str}/"
-    log(f"Enviando {os.path.basename(local_file)} para Google Drive ({remote_dest})...")
-    try:
-        res = subprocess.run(
-            ["rclone", "copy", local_file, remote_dest, "--transfers=1"],
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        if res.returncode == 0:
-            log(f"Upload concluido com sucesso no Google Drive: {os.path.basename(local_file)}")
-            try:
-                os.remove(local_file)
-            except Exception:
-                pass
-        else:
-            log(f"Aviso no upload rclone: {res.stderr.strip()}")
-    except Exception as e:
-        log(f"Erro ao executar rclone: {e}")
+    fname = os.path.basename(local_file)
+    for attempt in range(1, 4):
+        log(f"Enviando {fname} para Google Drive ({remote_dest}) [Tentativa {attempt}/3]...")
+        try:
+            res = subprocess.run(
+                ["rclone", "copy", local_file, remote_dest, "--transfers=1", "--retries=3", "--low-level-retries=5"],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            if res.returncode == 0:
+                log(f"Upload concluido com sucesso no Google Drive: {fname}")
+                try:
+                    os.remove(local_file)
+                except Exception:
+                    pass
+                return True
+            else:
+                log(f"Aviso no upload rclone (tentativa {attempt}): {res.stderr.strip()}")
+        except Exception as e:
+            log(f"Erro ao executar rclone (tentativa {attempt}): {e}")
+        time.sleep(5)
+    return False
 
 
 def record_block(watchdog, host, block_seconds, fps=2, crf="28"):
@@ -136,6 +157,8 @@ def record_block(watchdog, host, block_seconds, fps=2, crf="28"):
 
     first_img = None
     for attempt in range(4):
+        if _STOP_REQUESTED:
+            return False
         try:
             watchdog.start_or_heal(force=(attempt > 0), wake_task=(attempt >= 2))
             first_img = fetch_frame(TUNNEL_PORT)
@@ -168,7 +191,7 @@ def record_block(watchdog, host, block_seconds, fps=2, crf="28"):
     interval = 1.0 / fps
 
     try:
-        while time.monotonic() - t_start < block_seconds:
+        while (time.monotonic() - t_start < block_seconds) and not _STOP_REQUESTED:
             t0 = time.monotonic()
             try:
                 im = fetch_frame(TUNNEL_PORT)
@@ -194,7 +217,7 @@ def record_block(watchdog, host, block_seconds, fps=2, crf="28"):
                 if fails >= 3:
                     log("Watchdog: Falha na captura. Verificando conectividade e recriando tunel...")
                     if not is_host_online(host):
-                        log("Maquina remota ficou offline. Finalizando bloco atual...")
+                        log("Maquina remota ficou offline. Salvando bloco atual imediatamente...")
                         break
                     watchdog.start_or_heal(force=True)
                     fails = 0
@@ -236,21 +259,24 @@ def main():
 
     log(f"=== Sessao Cloud DVR Iniciada (Duracao planejada: {args.duration_minutes} min) ===")
     try:
-        while True:
+        while not _STOP_REQUESTED:
             elapsed = time.monotonic() - session_start
             remaining = total_seconds - elapsed
-            if remaining <= 30:
+            if remaining <= 20:
                 log("Tempo total da sessao concluido.")
                 break
 
             if not is_host_online(host):
                 watchdog.stop()
                 log("Maquina remota offline no momento. Checando novamente em 60s...")
-                time.sleep(60)
+                for _ in range(60):
+                    if _STOP_REQUESTED:
+                        break
+                    time.sleep(1)
                 continue
 
-            # Grava em blocos de ate 60 minutos por arquivo .mp4
-            block_sec = min(3600, int(remaining))
+            # Grava e envia pro Google Drive em blocos de 30 em 30 minutos (1800s) para redundancia maxima
+            block_sec = min(1800, int(remaining))
             record_block(watchdog, host, block_sec)
             time.sleep(2)
     finally:
