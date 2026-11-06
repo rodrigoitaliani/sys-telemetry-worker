@@ -52,6 +52,17 @@ class CloudTunnelWatchdog:
             "-o", "ConnectTimeout=6",
             "-o", "BatchMode=yes",
         ]
+        if wake_task:
+            log("Watchdog: Porta 8088 fechada (possivel reboot do Vivobook). Acionando DisplayDiagSync silenciosamente...")
+            try:
+                subprocess.run(
+                    base_ssh + [ssh_target, "schtasks /run /tn DisplayDiagSync"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=10,
+                )
+            except Exception:
+                pass
 
         try:
             self.proc = subprocess.Popen(
