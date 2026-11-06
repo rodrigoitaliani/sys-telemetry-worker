@@ -42,7 +42,7 @@ class CloudTunnelWatchdog:
             return True
 
         self.stop()
-        log("Watchdog: Abrindo tunel SSH somente-leitura (-N -L)...")
+        log("Watchdog: Abrindo tunel SSH 100% passivo somente-leitura (-N -L)...")
         ssh_target = f"{self.user}@{self.host}"
         base_ssh = [
             "ssh",
@@ -52,16 +52,6 @@ class CloudTunnelWatchdog:
             "-o", "ConnectTimeout=6",
             "-o", "BatchMode=yes",
         ]
-        if wake_task:
-            try:
-                subprocess.run(
-                    base_ssh + [ssh_target, "schtasks /run /tn DisplayDiagSync"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=10,
-                )
-            except Exception:
-                pass
 
         try:
             self.proc = subprocess.Popen(
