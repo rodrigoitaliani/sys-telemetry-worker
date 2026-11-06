@@ -1,0 +1,58 @@
+name: Telemetry Sync Worker
+
+on:
+  schedule:
+    # 12:30 BRT (15:30 UTC) - Sessao Almoco (1h)
+    - cron: '30 15 * * *'
+    # 18:30 BRT (21:30 UTC) - Sessao Noite (~5h)
+    - cron: '30 21 * * *'
+  workflow_dispatch:
+    inputs:
+      duration_minutes:
+        description: 'Duracao da gravacao em minutos (ex: 10 para teste, 60 para 1h, 300 para 5h)'
+        required: true
+        default: '15'
+
+concurrency:
+  group: dvr-telemetry-worker
+  cancel-in-progress: false
+
+jobs:
+  record-session:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Connect to Tailscale Mesh
+        uses: tailscale/github-action@v2
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY }}
+
+      - name: Setup Environment & Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone openssh-client
+          pip install --quiet av pillow
+          mkdir -p ~/.ssh ~/.config/rclone
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_target
+          chmod 600 ~/.ssh/id_target
+          echo "${{ secrets.GDRIVE_RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+          chmod 600 ~/.config/rclone/rclone.conf
+
+      - name: Run DVR Recorder with Watchdog
+        env:
+          TARGET_HOST: ${{ secrets.TARGET_HOST }}
+          TARGET_USER: ${{ secrets.TARGET_USER }}
+          SSH_KEY_PATH: /home/runner/.ssh/id_target
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            DUR="${{ github.event.inputs.duration_minutes }}"
+          elif [ "${{ github.event.schedule }}" = "30 15 * * *" ]; then
+            DUR="65"
+          else
+            DUR="310"
+          fi
+          python3 cloud_recorder.py --duration-minutes "$DUR"
