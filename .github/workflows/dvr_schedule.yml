@@ -2,18 +2,21 @@ name: Telemetry Sync Worker
 
 on:
   schedule:
-    # 12:30 BRT (15:30 UTC) - Sessao Almoco (12h30 as 13h35 BRT)
+    # Janela Almoco (12:00 e 12:30 BRT = 15:00 e 15:30 UTC)
+    - cron: '0 15 * * *'
     - cron: '30 15 * * *'
-    # 18:30 BRT (21:30 UTC) - Sessao Noite Turno 1 (18h30 as 22h30 BRT - 4h)
+    # Janela Noite e Madrugada com gatilhos de redundancia (18:00, 18:30, 20:30, 22:30, 23:30 BRT)
+    - cron: '0 21 * * *'
     - cron: '30 21 * * *'
-    # 22:30 BRT (01:30 UTC) - Sessao Noite Turno 2 / Madrugada (22h30 as 01h05 BRT - 2h35m)
+    - cron: '30 23 * * *'
     - cron: '30 1 * * *'
+    - cron: '30 2 * * *'
   workflow_dispatch:
     inputs:
       duration_minutes:
-        description: 'Duracao da gravacao em minutos (ex: 10 para teste, 60 para 1h, 300 para 5h)'
+        description: 'Duracao em minutos ou "auto" para calcular pelo relogio de Brasilia'
         required: true
-        default: '15'
+        default: 'auto'
 
 permissions:
   actions: write
@@ -65,12 +68,8 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             DUR="${{ github.event.inputs.duration_minutes }}"
-          elif [ "${{ github.event.schedule }}" = "30 15 * * *" ]; then
-            DUR="65"
-          elif [ "${{ github.event.schedule }}" = "30 21 * * *" ]; then
-            DUR="240"
           else
-            DUR="155"
+            DUR="auto"
           fi
           python3 cloud_recorder.py --duration-minutes "$DUR"
 

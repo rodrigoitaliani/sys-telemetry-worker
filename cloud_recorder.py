@@ -268,9 +268,36 @@ def record_block(watchdog, host, block_seconds, fps=2, crf="28"):
     return False
 
 
+def compute_auto_duration_minutes():
+    tz_br = datetime.timezone(datetime.timedelta(hours=-3))
+    now_br = datetime.datetime.now(tz_br)
+    hm = now_br.hour * 60 + now_br.minute
+
+    # Janela Almoco: se iniciar entre 11h30 e 13h30 BRT, grava ate 13h35 BRT
+    if (11 * 60 + 30) <= hm <= (13 * 60 + 30):
+        end_br = now_br.replace(hour=13, minute=35, second=0, microsecond=0)
+        rem = int((end_br - now_br).total_seconds() // 60)
+        log(f"Relogio BRT ({now_br.strftime('%H:%M')}): Turno Almoco detectado -> gravando ate 13:35 BRT ({rem} min).")
+        return max(10, min(rem, 150))
+
+    # Janela Noite / Madrugada: se iniciar entre 17h20 e 01h00 BRT, grava ate 01h05 BRT (teto de 320 min por VM)
+    if hm >= (17 * 60 + 20) or hm < (1 * 60):
+        if hm >= (17 * 60 + 20):
+            end_br = (now_br + datetime.timedelta(days=1)).replace(hour=1, minute=5, second=0, microsecond=0)
+        else:
+            end_br = now_br.replace(hour=1, minute=5, second=0, microsecond=0)
+        rem = int((end_br - now_br).total_seconds() // 60)
+        capped = max(10, min(rem, 320))
+        log(f"Relogio BRT ({now_br.strftime('%H:%M')}): Turno Noite detectado -> faltam {rem} min ate 01:05 BRT (alocando {capped} min nesta VM).")
+        return capped
+
+    log(f"Relogio BRT ({now_br.strftime('%H:%M')}): Cron disparado pelo GitHub fora das janelas (12h30-13h35 / 18h00-01h05). Encerrando em 1s para nao prender a fila.")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--duration-minutes", type=int, default=60)
+    parser.add_argument("--duration-minutes", type=str, default="auto")
     args = parser.parse_args()
 
     host = os.environ.get("TARGET_HOST", "").strip()
@@ -281,11 +308,18 @@ def main():
         log("ERRO: Variaveis TARGET_HOST / TARGET_USER nao definidas.")
         sys.exit(1)
 
-    total_seconds = args.duration_minutes * 60
+    if str(args.duration_minutes).strip().lower() == "auto":
+        dur_min = compute_auto_duration_minutes()
+        if dur_min <= 0:
+            sys.exit(0)
+    else:
+        dur_min = int(args.duration_minutes)
+
+    total_seconds = dur_min * 60
     session_start = time.monotonic()
     watchdog = CloudTunnelWatchdog(host, user, ssh_key, TUNNEL_PORT)
 
-    log(f"=== Sessao Cloud DVR Iniciada (Duracao planejada: {args.duration_minutes} min) ===")
+    log(f"=== Sessao Cloud DVR Iniciada (Duracao planejada: {dur_min} min) ===")
     try:
         while not _STOP_REQUESTED:
             elapsed = time.monotonic() - session_start
