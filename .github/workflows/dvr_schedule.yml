@@ -15,6 +15,10 @@ on:
         required: true
         default: '15'
 
+permissions:
+  actions: write
+  contents: read
+
 concurrency:
   group: dvr-telemetry-worker
   cancel-in-progress: false
@@ -27,6 +31,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Keep Cron Schedule Alive (Anti 60-day GitHub Expiration)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api -X PUT "repos/${{ github.repository }}/actions/workflows/dvr_schedule.yml/enable" >/dev/null 2>&1 || true
 
       - name: Connect to Tailscale Mesh
         uses: tailscale/github-action@v2
@@ -68,6 +78,15 @@ jobs:
         if: always()
         run: |
           if [ -d "recordings" ] && [ -n "$(find recordings -name '*.mp4' 2>/dev/null)" ]; then
-            echo "Arquivos MP4 remanescentes detectados. Executando varredura final para o Google Drive..."
-            rclone copy recordings/ gdrive:CCTV_Vivobook/ --transfers=1 --retries=5 --low-level-retries=10 || true
+            echo "Arquivos MP4 remanescentes detectados. Executando varredura final (rclone move) para o Google Drive..."
+            rclone move recordings/ gdrive:CCTV_Vivobook/ --transfers=1 --retries=5 --low-level-retries=10 --delete-empty-src-dirs || true
           fi
+
+      - name: Ultimate Fallback to GitHub Artifact (If GDrive Outage)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fallback-dvr-recordings-${{ github.run_id }}
+          path: recordings/**/*.mp4
+          if-no-files-found: ignore
+          retention-days: 7

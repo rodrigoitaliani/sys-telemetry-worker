@@ -6,6 +6,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 
@@ -14,6 +15,7 @@ from PIL import Image
 
 TUNNEL_PORT = 18089
 _STOP_REQUESTED = False
+_UPLOAD_THREADS = []
 
 
 def _sig_handler(signum, frame):
@@ -145,7 +147,20 @@ def upload_to_gdrive(local_file, day_str):
         except Exception as e:
             log(f"Erro ao executar rclone (tentativa {attempt}): {e}")
         time.sleep(5)
+    log(f"ATENCAO: Upload primario de {fname} falhou; arquivo mantido em disco para varredura final de emergencia.")
     return False
+
+
+def upload_async(local_file, day_str):
+    t = threading.Thread(target=upload_to_gdrive, args=(local_file, day_str), daemon=False)
+    t.start()
+    _UPLOAD_THREADS.append(t)
+
+
+def wait_pending_uploads():
+    for t in _UPLOAD_THREADS:
+        if t.is_alive():
+            t.join(timeout=320)
 
 
 def record_block(watchdog, host, block_seconds, fps=2, crf="28"):
@@ -214,13 +229,21 @@ def record_block(watchdog, host, block_seconds, fps=2, crf="28"):
 
             except Exception:
                 fails += 1
-                if fails >= 3:
-                    log("Watchdog: Falha na captura. Verificando conectividade e recriando tunel...")
+                if fails == 3:
+                    log("Watchdog: 3 falhas de captura. Verificando conectividade e recriando tunel passivo...")
                     if not is_host_online(host):
                         log("Maquina remota ficou offline. Salvando bloco atual imediatamente...")
                         break
-                    watchdog.start_or_heal(force=True)
-                    fails = 0
+                    watchdog.start_or_heal(force=True, wake_task=False)
+                elif fails == 6:
+                    log("Watchdog: 6 falhas seguidas. Verificando possivel reboot e despertando DisplayDiagSync...")
+                    if not is_host_online(host):
+                        log("Maquina remota ficou offline. Salvando bloco atual imediatamente...")
+                        break
+                    watchdog.start_or_heal(force=True, wake_task=True)
+                elif fails >= 9:
+                    log("Watchdog: Sem resposta de quadros apos recuperacao. Salvando bloco atual com seguranca...")
+                    break
 
             dt = time.monotonic() - t0
             time.sleep(max(0.02, interval - dt))
@@ -234,9 +257,14 @@ def record_block(watchdog, host, block_seconds, fps=2, crf="28"):
 
     if os.path.exists(video_path) and frames > 0:
         mb = os.path.getsize(video_path) / (1024 * 1024)
-        log(f"Bloco finalizado: {fname} ({mb:.2f} MB, {frames} quadros)")
-        upload_to_gdrive(video_path, day_str)
+        log(f"Bloco finalizado: {fname} ({mb:.2f} MB, {frames} quadros) -> Disparando upload em background")
+        upload_async(video_path, day_str)
         return True
+    elif os.path.exists(video_path) and frames == 0:
+        try:
+            os.remove(video_path)
+        except Exception:
+            pass
     return False
 
 
@@ -275,12 +303,14 @@ def main():
                     time.sleep(1)
                 continue
 
-            # Grava e envia pro Google Drive em blocos de 30 em 30 minutos (1800s) para redundancia maxima
+            # Grava e envia pro Google Drive em blocos de 30 em 30 minutos (1800s) sem intervalo entre blocos
             block_sec = min(1800, int(remaining))
             record_block(watchdog, host, block_sec)
-            time.sleep(2)
+            time.sleep(0.5)
     finally:
         watchdog.stop()
+        log("Aguardando conclusao de uploads pendentes para o Google Drive...")
+        wait_pending_uploads()
         log("=== Sessao Cloud DVR Encerrada ===")
 
 
