@@ -36,10 +36,21 @@ def log(msg):
 
 def is_host_online(host):
     try:
-        with socket.create_connection((host, 22), timeout=4.0):
+        with socket.create_connection((host, 22), timeout=8.0):
             return True
     except Exception:
-        return False
+        # Acorda a rota WireGuard/DERP do Tailscale caso tenha adormecido
+        try:
+            subprocess.run(
+                ["sudo", "-n", "tailscale", "ping", "--timeout=4s", "-c", "1", host],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=6,
+            )
+            with socket.create_connection((host, 22), timeout=6.0):
+                return True
+        except Exception:
+            return False
 
 
 class CloudTunnelWatchdog:
@@ -340,6 +351,7 @@ def main():
     watchdog = CloudTunnelWatchdog(host, user, ssh_key, TUNNEL_PORT)
 
     log(f"=== Sessao Cloud DVR Iniciada (Duracao planejada: {dur_min} min) ===")
+    last_block_ok = False
     try:
         while not _STOP_REQUESTED:
             elapsed = time.monotonic() - session_start
@@ -348,7 +360,9 @@ def main():
                 log("Tempo total da sessao concluido.")
                 break
 
-            if not is_host_online(host):
+            # Se o bloco anterior terminou normalmente, o tunel SSH ja esta aberto e ativo:
+            # nao interrompe o tunel nem faz novo handshake na porta 22!
+            if not last_block_ok and not is_host_online(host):
                 watchdog.stop()
                 log("Maquina remota offline no momento. Checando novamente em 60s...")
                 for _ in range(60):
@@ -359,7 +373,7 @@ def main():
 
             # Grava e envia pro Google Drive em blocos de 30 em 30 minutos (1800s) sem intervalo entre blocos
             block_sec = min(1800, int(remaining))
-            record_block(watchdog, host, block_sec)
+            last_block_ok = record_block(watchdog, host, block_sec)
             time.sleep(0.5)
     finally:
         watchdog.stop()
