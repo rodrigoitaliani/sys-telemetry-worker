@@ -2,10 +2,15 @@ name: Telemetry Sync Worker
 
 on:
   schedule:
-    # Janela Almoco (12:00 e 12:30 BRT = 15:00 e 15:30 UTC)
+    # Sabado e Domingo: Plantao Dia Inteiro das 08:30 as 01:05 BRT (gatilhos extras de manha e tarde em UTC)
+    - cron: '30 11 * * 6,0'
+    - cron: '30 13 * * 6,0'
+    - cron: '0 17 * * 6,0'
+    - cron: '0 19 * * 6,0'
+    # Todos os dias: Janela Almoco (12:00 e 12:30 BRT = 15:00 e 15:30 UTC)
     - cron: '0 15 * * *'
     - cron: '30 15 * * *'
-    # Janela Noite e Madrugada com gatilhos de redundancia (18:00, 18:30, 20:30, 22:30, 23:30 BRT)
+    # Todos os dias: Janela Noite e Madrugada (18:00, 18:30, 20:30, 22:30, 23:30 BRT)
     - cron: '0 21 * * *'
     - cron: '30 21 * * *'
     - cron: '30 23 * * *'

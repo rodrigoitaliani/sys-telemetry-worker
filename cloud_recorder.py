@@ -272,26 +272,46 @@ def compute_auto_duration_minutes():
     tz_br = datetime.timezone(datetime.timedelta(hours=-3))
     now_br = datetime.datetime.now(tz_br)
     hm = now_br.hour * 60 + now_br.minute
+    wk = now_br.weekday()  # 0=Seg, 1=Ter, 2=Qua, 3=Qui, 4=Sex, 5=Sab, 6=Dom
 
-    # Janela Almoco: se iniciar entre 11h30 e 13h30 BRT, grava ate 13h35 BRT
+    # Madrugada (00h00 as 01h00 BRT - qualquer dia da semana): grava ate 01h05 BRT
+    if hm < (1 * 60):
+        end_br = now_br.replace(hour=1, minute=5, second=0, microsecond=0)
+        rem = int((end_br - now_br).total_seconds() // 60)
+        capped = max(10, min(rem, 320))
+        log(f"Relogio BRT ({now_br.strftime('%H:%M')}): Turno Madrugada -> gravando ate 01:05 BRT ({capped} min).")
+        return capped
+
+    # FIM DE SEMANA (Sabado=5 e Domingo=6): plantao o dia inteiro das 08h00 as 01h05 da madrugada!
+    if wk in (5, 6):
+        if hm >= (8 * 60):
+            end_br = (now_br + datetime.timedelta(days=1)).replace(hour=1, minute=5, second=0, microsecond=0)
+            rem = int((end_br - now_br).total_seconds() // 60)
+            capped = max(10, min(rem, 320))
+            dia_nome = "Sabado" if wk == 5 else "Domingo"
+            log(f"Relogio BRT ({now_br.strftime('%H:%M')} - {dia_nome}): Plantao Dia Inteiro (08h30-01h05) -> alocando {capped} min nesta VM (faltam {rem} min ate 01:05).")
+            return capped
+        else:
+            log(f"Relogio BRT ({now_br.strftime('%H:%M')}): Antes das 08h00 no fim de semana. Encerrando.")
+            return 0
+
+    # SEGUNDA A SEXTA (wk 0 a 4):
+    # 1) Janela Almoco: 11h30 as 13h30 BRT -> grava ate 13h35 BRT
     if (11 * 60 + 30) <= hm <= (13 * 60 + 30):
         end_br = now_br.replace(hour=13, minute=35, second=0, microsecond=0)
         rem = int((end_br - now_br).total_seconds() // 60)
-        log(f"Relogio BRT ({now_br.strftime('%H:%M')}): Turno Almoco detectado -> gravando ate 13:35 BRT ({rem} min).")
+        log(f"Relogio BRT ({now_br.strftime('%H:%M')} - Dia Util): Turno Almoco detectado -> gravando ate 13:35 BRT ({rem} min).")
         return max(10, min(rem, 150))
 
-    # Janela Noite / Madrugada: se iniciar entre 17h20 e 01h00 BRT, grava ate 01h05 BRT (teto de 320 min por VM)
-    if hm >= (17 * 60 + 20) or hm < (1 * 60):
-        if hm >= (17 * 60 + 20):
-            end_br = (now_br + datetime.timedelta(days=1)).replace(hour=1, minute=5, second=0, microsecond=0)
-        else:
-            end_br = now_br.replace(hour=1, minute=5, second=0, microsecond=0)
+    # 2) Janela Noite: a partir das 17h20 BRT -> grava ate 01h05 BRT (teto de 320 min por VM)
+    if hm >= (17 * 60 + 20):
+        end_br = (now_br + datetime.timedelta(days=1)).replace(hour=1, minute=5, second=0, microsecond=0)
         rem = int((end_br - now_br).total_seconds() // 60)
         capped = max(10, min(rem, 320))
-        log(f"Relogio BRT ({now_br.strftime('%H:%M')}): Turno Noite detectado -> faltam {rem} min ate 01:05 BRT (alocando {capped} min nesta VM).")
+        log(f"Relogio BRT ({now_br.strftime('%H:%M')} - Dia Util): Turno Noite detectado -> faltam {rem} min ate 01:05 BRT (alocando {capped} min nesta VM).")
         return capped
 
-    log(f"Relogio BRT ({now_br.strftime('%H:%M')}): Cron disparado pelo GitHub fora das janelas (12h30-13h35 / 18h00-01h05). Encerrando em 1s para nao prender a fila.")
+    log(f"Relogio BRT ({now_br.strftime('%H:%M')}): Cron disparado pelo GitHub fora das janelas (Seg-Sex: 12h30-13h35 / 18h00-01h05 | Sab-Dom: 08h30-01h05). Encerrando em 1s.")
     return 0
 
 
