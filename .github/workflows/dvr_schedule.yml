@@ -2,22 +2,25 @@ name: Telemetry Sync Worker
 
 on:
   schedule:
-    # Sabado e Domingo: Plantao Dia Inteiro de ~17h seguidas (das 08:00/08:30 da manha ate 01:05 da madrugada!)
-    - cron: '0 11 * * 6,0'
-    - cron: '30 11 * * 6,0'
-    - cron: '0 12 * * 6,0'
-    - cron: '30 13 * * 6,0'
-    - cron: '0 17 * * 6,0'
-    - cron: '0 19 * * 6,0'
-    # Todos os dias: Janela Almoco (12:00 e 12:30 BRT = 15:00 e 15:30 UTC)
-    - cron: '0 15 * * *'
-    - cron: '30 15 * * *'
-    # Todos os dias: Janela Noite e Madrugada (18:00, 18:30, 20:30, 22:30, 23:30 BRT)
-    - cron: '0 21 * * *'
-    - cron: '30 21 * * *'
-    - cron: '30 23 * * *'
-    - cron: '30 1 * * *'
-    - cron: '30 2 * * *'
+    # Sabado e Domingo: Partida antecipada em minutos fora de pico (:47 e :17) para garantir maquina pronta antes das 08:30 BRT!
+    - cron: '47 10 * * 6,0'
+    - cron: '17 11 * * 6,0'
+    - cron: '32 11 * * 6,0'
+    - cron: '17 12 * * 6,0'
+    - cron: '47 13 * * 6,0'
+    - cron: '47 16 * * 6,0'
+    - cron: '47 18 * * 6,0'
+    # Todos os dias: Janela Almoco (partida antecipada as 11:47 BRT + 12:17 BRT + 12:32 BRT)
+    - cron: '47 14 * * *'
+    - cron: '17 15 * * *'
+    - cron: '32 15 * * *'
+    # Todos os dias: Janela Noite e Madrugada (partida antecipada as 17:47 BRT + 18:17, 18:32, 20:32, 22:32, 23:32 BRT)
+    - cron: '47 20 * * *'
+    - cron: '17 21 * * *'
+    - cron: '32 21 * * *'
+    - cron: '32 23 * * *'
+    - cron: '32 1 * * *'
+    - cron: '32 2 * * *'
   workflow_dispatch:
     inputs:
       duration_minutes:

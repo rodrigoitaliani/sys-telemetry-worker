@@ -293,9 +293,9 @@ def compute_auto_duration_minutes():
         log(f"Relogio BRT ({now_br.strftime('%H:%M')}): Turno Madrugada -> gravando ate 01:05 BRT ({capped} min).")
         return capped
 
-    # FIM DE SEMANA (Sabado=5 e Domingo=6): plantao o dia inteiro das 08h00 as 01h05 da madrugada!
+    # FIM DE SEMANA (Sabado=5 e Domingo=6): plantao o dia inteiro das 07h30 as 01h05 da madrugada!
     if wk in (5, 6):
-        if hm >= (8 * 60):
+        if hm >= (7 * 60 + 30):
             end_br = (now_br + datetime.timedelta(days=1)).replace(hour=1, minute=5, second=0, microsecond=0)
             rem = int((end_br - now_br).total_seconds() // 60)
             capped = max(10, min(rem, 320))
@@ -303,7 +303,7 @@ def compute_auto_duration_minutes():
             log(f"Relogio BRT ({now_br.strftime('%H:%M')} - {dia_nome}): Plantao Dia Inteiro (08h30-01h05) -> alocando {capped} min nesta VM (faltam {rem} min ate 01:05).")
             return capped
         else:
-            log(f"Relogio BRT ({now_br.strftime('%H:%M')}): Antes das 08h00 no fim de semana. Encerrando.")
+            log(f"Relogio BRT ({now_br.strftime('%H:%M')}): Antes das 07h30 no fim de semana. Encerrando.")
             return 0
 
     # SEGUNDA A SEXTA (wk 0 a 4):
