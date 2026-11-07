@@ -2,8 +2,10 @@ name: Telemetry Sync Worker
 
 on:
   schedule:
-    # Sabado e Domingo: Plantao Dia Inteiro das 08:30 as 01:05 BRT (gatilhos extras de manha e tarde em UTC)
+    # Sabado e Domingo: Plantao Dia Inteiro de ~17h seguidas (das 08:00/08:30 da manha ate 01:05 da madrugada!)
+    - cron: '0 11 * * 6,0'
     - cron: '30 11 * * 6,0'
+    - cron: '0 12 * * 6,0'
     - cron: '30 13 * * 6,0'
     - cron: '0 17 * * 6,0'
     - cron: '0 19 * * 6,0'
@@ -78,6 +80,16 @@ jobs:
             DUR="auto"
           fi
           python3 cloud_recorder.py --duration-minutes "$DUR"
+
+      - name: Auto-Relay Handoff (Continua plantao de 17h ate 01:05 AM sem pausa)
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f /tmp/trigger_next_relay ]; then
+            echo "Disparando proxima maquina de revezamento imediatamente para continuar ate 01:05 da madrugada..."
+            gh workflow run dvr_schedule.yml -f duration_minutes=auto --repo "${{ github.repository }}" || true
+          fi
 
       - name: Emergency Final GDrive Sweep (Redundancy)
         if: always()

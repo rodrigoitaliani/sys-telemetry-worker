@@ -379,6 +379,15 @@ def main():
         watchdog.stop()
         log("Aguardando conclusao de uploads pendentes para o Google Drive...")
         wait_pending_uploads()
+        if not _STOP_REQUESTED:
+            still_rem = compute_auto_duration_minutes()
+            if still_rem > 5:
+                log(f"Revezamento 17h: Ainda faltam {still_rem} min na janela atual! Acionando proxima VM imediatamente...")
+                try:
+                    with open("/tmp/trigger_next_relay", "w") as f:
+                        f.write(str(still_rem))
+                except Exception:
+                    pass
         log("=== Sessao Cloud DVR Encerrada ===")
 
 
